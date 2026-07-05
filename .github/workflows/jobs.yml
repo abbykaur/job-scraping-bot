@@ -1,0 +1,57 @@
+name: post-jobs
+
+# Runs 3x/day on weekdays (Pacific), then commits jobs.db back so the `posted`
+# flag persists between runs — a job posted once is never posted again.
+#
+# TIMEZONE: GitHub cron is UTC only. Times below are PDT (summer, UTC-7).
+# In winter (PST, UTC-8) each run fires an hour early — add 1h to each UTC hour.
+# The 17:30 PT run = 00:30 UTC NEXT day, so its day-of-week is shifted (TUE-SAT).
+on:
+  schedule:
+    - cron: "30 14 * * MON-FRI"   # 07:30 PDT — morning recruiter drops
+    - cron: "0 20 * * MON-FRI"    # 13:00 PDT — midday updates
+    - cron: "30 0 * * TUE-SAT"    # 17:30 PDT (prev day) — end-of-day cleanups
+  workflow_dispatch: {}            # allow manual "Run workflow" button
+
+# Let the job push the updated jobs.db back to the repo.
+permissions:
+  contents: write
+
+# Never let two runs post at once (would risk double-posting before commit).
+concurrency:
+  group: post-jobs
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (includes last run's jobs.db)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the bot (one cycle)
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          CHANNEL_ID_AIML: ${{ secrets.CHANNEL_ID_AIML }}
+        run: python bot.py
+
+      - name: Persist jobs.db (only if it changed)
+        run: |
+          if [[ -n "$(git status --porcelain jobs.db)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add jobs.db
+            git commit -m "Update jobs.db (posted-state) [skip ci]"
+            git push
+          else
+            echo "jobs.db unchanged — nothing to commit."
+          fi

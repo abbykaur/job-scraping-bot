@@ -1,0 +1,57 @@
+# Render deployment: 3 cron jobs, weekday runs, run-once mode.
+#
+# IMPORTANT — timezones: Render Cron schedules are UTC only. The times below are
+# converted from Pacific DAYLIGHT time (PDT, UTC-7), which is correct spring→fall.
+# When the Bay Area switches to Pacific STANDARD time (PST, UTC-8) in early Nov,
+# each run fires ONE HOUR EARLIER than intended. To keep 7:30/13:00/17:30 local
+# in winter, add 1 hour to each UTC time (see the "PST (winter)" note per job).
+#
+# Weekday note: 17:30 PDT = 00:30 UTC the NEXT day, so its cron weekday field is
+# shifted to TUE-SAT to cover Mon–Fri *Pacific* evenings (incl. Friday).
+
+services:
+  # ── Run 1: 7:30 AM PT — early-morning recruiter drops ──────────────────────
+  - type: cron
+    name: cs-jobs-bot-morning
+    runtime: python
+    schedule: "30 14 * * MON-FRI"      # 14:30 UTC = 07:30 PDT  (PST winter: "30 15 * * MON-FRI")
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
+      - key: CHANNEL_ID_AIML
+        sync: false
+
+  # ── Run 2: 1:00 PM PT — mid-day / after-lunch updates ──────────────────────
+  - type: cron
+    name: cs-jobs-bot-midday
+    runtime: python
+    schedule: "0 20 * * MON-FRI"       # 20:00 UTC = 13:00 PDT  (PST winter: "0 21 * * MON-FRI")
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
+      - key: CHANNEL_ID_AIML
+        sync: false
+
+  # ── Run 3: 5:30 PM PT — end-of-day cleanups ────────────────────────────────
+  # 17:30 PDT = 00:30 UTC next day, so weekday field is TUE-SAT (= Mon–Fri PT eve).
+  - type: cron
+    name: cs-jobs-bot-evening
+    runtime: python
+    schedule: "30 0 * * TUE-SAT"       # 00:30 UTC = 17:30 PDT prev day  (PST winter: "30 1 * * TUE-SAT")
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CHANNEL_ID
+        sync: false
+      - key: CHANNEL_ID_AIML
+        sync: false
