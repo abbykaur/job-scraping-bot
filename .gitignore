@@ -8,6 +8,9 @@ __pycache__/
 venv/
 .venv/
 
+# Retired: replaced by the `posted` column in jobs.db
+seen_jobs.json
+
 # NOTE: jobs.db is intentionally NOT ignored — the GitHub Actions workflow
 # commits it back between runs so the `posted` flag persists (prevents
 # re-posting the same jobs each cron run). See .github/workflows/jobs.yml.
