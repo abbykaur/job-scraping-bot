@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     scope        TEXT NOT NULL DEFAULT 'none',  -- 'local' | 'remote' | 'none'
     active       INTEGER NOT NULL DEFAULT 1,
     posted       INTEGER NOT NULL DEFAULT 0,     -- 0 until sent to Discord
+    skip_reason  TEXT,                   -- set when checked and NOT posted (e.g. 'experience:8')
     date_posted  INTEGER DEFAULT 0,      -- source's timestamp, for ordering
     first_seen   TEXT                    -- ISO time we first ingested it
 );
@@ -69,6 +70,7 @@ def init_db() -> None:
 _MIGRATIONS = {
     "is_houston": "ALTER TABLE jobs ADD COLUMN is_houston INTEGER NOT NULL DEFAULT 0",
     "is_dallas": "ALTER TABLE jobs ADD COLUMN is_dallas INTEGER NOT NULL DEFAULT 0",
+    "skip_reason": "ALTER TABLE jobs ADD COLUMN skip_reason TEXT",
 }
 
 
@@ -177,7 +179,7 @@ def fetch_recent(where: str, params: tuple = (), limit: int = 5) -> list[sqlite3
     """
     sql = (
         "SELECT * FROM jobs "
-        f"WHERE active=1 AND ({where}) "
+        f"WHERE active=1 AND skip_reason IS NULL AND ({where}) "
         "ORDER BY date_posted DESC "
         "LIMIT ?"
     )
@@ -193,6 +195,22 @@ def mark_posted(job_ids: list[str]) -> None:
         conn.executemany(
             "UPDATE jobs SET posted=1 WHERE job_id=?",
             [(jid,) for jid in job_ids],
+        )
+
+
+def mark_skipped(skips: list[tuple[str, str]]) -> None:
+    """Retire jobs we checked but chose not to post, as (job_id, reason) pairs.
+
+    Sets posted=1 so they stop coming back in fetch_unposted (otherwise a rejected
+    job would eat a candidate slot every run), and records why in skip_reason.
+    upsert_job never touches either column, so re-ingesting keeps them retired.
+    """
+    if not skips:
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "UPDATE jobs SET posted=1, skip_reason=? WHERE job_id=?",
+            [(reason, jid) for jid, reason in skips],
         )
 
 

@@ -1,5 +1,6 @@
 import os
 import re
+import html
 import asyncio
 import logging
 
@@ -145,6 +146,35 @@ DALLAS_KEYWORDS = {
 
 # Posted-state now lives in jobs.db (the `posted` column), replacing seen_jobs.json.
 MAX_POSTS_PER_CYCLE = 10
+# Candidates checked per feed per run. Higher than MAX_POSTS_PER_CYCLE so roles
+# skipped by the experience check don't leave the channel short.
+CANDIDATES_PER_FEED = 30
+
+# Experience check. Titles rarely say "8+ years", so before posting we read the
+# job description and skip roles whose MINIMUM required experience is above this.
+# We take the minimum across mentions so "BS + 3 years OR MS + 1 year" reads as 1,
+# and new-grad ranges like "0-2 years" pass. Postings we can't read are kept.
+MAX_YEARS_REQUIRED = 2
+
+_NUM_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "twelve": 12, "fifteen": 15,
+}
+_NUM = r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")"
+# "5+ years", "3-5 years", "3 to 5 yrs", "five or more years". Plural only, so
+# "4-year degree" and "80-year history" don't count.
+YEARS_RE = re.compile(
+    r"\b" + _NUM + r"\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*" + _NUM
+    + r"\s*)?\+?\s*(?:or more\s+)?(?:years|yrs)\b",
+    re.IGNORECASE,
+)
+
+# Workday pages render the description in the browser, so the raw HTML is empty.
+# Its public JSON endpoint (/wday/cxs/...) returns the same text directly.
+WORKDAY_RE = re.compile(
+    r"https://([^/]+\.myworkday(?:jobs|site)\.com)/(?:[a-z]{2}-[A-Z]{2}/)?"
+    r"(?:recruiting/([^/]+)/)?([^/]+)/(job/[^?#]+)"
+)
 
 # Liveness check (hybrid, at post time only). HTTP statuses that mean the job
 # posting is genuinely gone — everything else (incl. 3xx→2xx, 405, timeouts)
@@ -171,26 +201,79 @@ async def fetch_listings() -> list:
             return await resp.json(content_type=None)
 
 
-async def is_url_alive(session: aiohttp.ClientSession, url: str) -> bool:
-    """Return False only if a job's URL is definitively gone (404/410).
+def html_to_text(raw: str) -> str:
+    """Flatten an HTML page (or HTML fragment) into searchable plain text.
 
-    Fail-open: 2xx, redirects that resolve to 2xx, method-not-allowed (405/501),
-    bot-blocks, timeouts, and any network error all return True — we don't want
-    to drop a good job over a transient or ambiguous response. We deliberately
-    do NOT parse page text, so 200-with-"position closed" (soft-404) reads alive.
+    Keeps <script> blocks that mention "description", since many ATS pages
+    (Greenhouse, Ashby) ship the posting as JSON inside a script tag.
+    """
+    raw = raw.replace("\\u003c", "<").replace("\\u003e", ">")
+    raw = re.sub(
+        r"<(script|style)[^>]*>(.*?)</\1>",
+        lambda m: f" {m.group(2)} " if "description" in m.group(2).lower() else " ",
+        raw, flags=re.S | re.I,
+    )
+    text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+    return re.sub(r"\s+", " ", text)
+
+
+async def fetch_posting(session: aiohttp.ClientSession, url: str) -> tuple[bool, str]:
+    """GET a job posting once and return (alive, description_text).
+
+    Doubles as the liveness check: alive is False only on a definitive 404/410.
+    Fail-open like before: blocks, timeouts, and network errors return
+    (True, ""), and empty text means "couldn't read it", which the experience
+    check treats as a pass. We still don't detect 200-with-"position closed".
     """
     if not url:
-        return True  # nothing to check; trust the feed
+        return True, ""  # nothing to check; trust the feed
     try:
-        # HEAD is cheap; follow redirects and judge the FINAL status.
-        async with session.head(url, allow_redirects=True) as resp:
-            if resp.status in (405, 501):  # server rejects HEAD — retry with GET
-                async with session.get(url, allow_redirects=True) as gresp:
-                    return gresp.status not in DEAD_STATUSES
-            return resp.status not in DEAD_STATUSES
+        m = WORKDAY_RE.match(url)
+        if m:
+            host, tenant, site, path = m.groups()
+            api = f"https://{host}/wday/cxs/{tenant or host.split('.')[0]}/{site}/{path}"
+            async with session.get(api, headers={"Accept": "application/json"}) as resp:
+                if resp.status in DEAD_STATUSES:
+                    return False, ""
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    desc = data.get("jobPostingInfo", {}).get("jobDescription", "")
+                    return True, html_to_text(desc)
+            # Unexpected API response: fall back to the normal page below.
+        async with session.get(url, allow_redirects=True) as resp:
+            if resp.status in DEAD_STATUSES:
+                return False, ""
+            if resp.status != 200:
+                return True, ""
+            return True, html_to_text(await resp.text(errors="ignore"))
     except Exception as e:
-        log.debug("Liveness check failed for %s (%s) — assuming alive.", url, e)
-        return True
+        log.debug("Fetch failed for %s (%s) — assuming alive.", url, e)
+        return True, ""
+
+
+def min_years_required(text: str) -> int | None:
+    """Smallest years-of-experience number the posting asks for, or None if none.
+
+    Only counts year mentions tied to "experience" (within 60 chars after or 30
+    before), so "18 years of age" or "within 2 years of graduating" are ignored.
+    """
+    found = []
+    for m in YEARS_RE.finditer(text):
+        after = text[m.end():m.end() + 60].lower()
+        before = text[max(0, m.start() - 30):m.start()].lower()
+        if "experience" not in after and "experience" not in before:
+            continue
+        n = m.group(1).lower()
+        found.append(int(n) if n.isdigit() else _NUM_WORDS[n])
+    return min(found) if found else None
+
+
+def too_experienced(text: str) -> int | None:
+    """Return the required years if the posting asks for too much, else None."""
+    years = min_years_required(text)
+    if years is not None and years > MAX_YEARS_REQUIRED:
+        return years
+    return None
 
 
 def normalize_simplify(raw: dict) -> dict:
@@ -309,8 +392,13 @@ async def produce_jobspy(search, keep) -> int:
         log.error("JobSpy scrape failed (%s @ %s): %s", search_term, location, e)
         return 0
 
-    normalized = [normalize_jobspy(row) for _, row in df.iterrows()]
-    normalized = [j for j in normalized if keep(j)]
+    # Boards hand us the full description, so the experience check runs here at
+    # ingest too. That covers redirect links (e.g. appcast) we can't read later.
+    normalized = []
+    for _, row in df.iterrows():
+        job = normalize_jobspy(row)
+        if keep(job) and not too_experienced(_s(row.get("description"))):
+            normalized.append(job)
     if not normalized:
         return 0
     return db.ingest(normalized)
@@ -513,19 +601,29 @@ async def post_feed(feed: dict) -> int:
                     feed["channel_id"], feed["name"])
         return 0
 
-    rows = db.fetch_unposted(feed["where"], limit=MAX_POSTS_PER_CYCLE)
+    rows = db.fetch_unposted(feed["where"], limit=CANDIDATES_PER_FEED)
     if not rows:
         return 0
 
     posted_ids = []
+    skipped = []  # (job_id, reason)
     async with aiohttp.ClientSession(
         timeout=LIVENESS_TIMEOUT, headers={"User-Agent": BROWSER_UA}
     ) as session:
         for row in rows:
-            # Verify the posting is still live before we send it.
-            if not await is_url_alive(session, row["url"]):
+            if len(posted_ids) >= MAX_POSTS_PER_CYCLE:
+                break
+            # One fetch: is the posting still live, and what does it ask for?
+            alive, text = await fetch_posting(session, row["url"])
+            if not alive:
                 log.info("Dropping dead job %s (%s).", row["job_id"], row["url"])
                 db.delete_job(row["job_id"])
+                continue
+            years = too_experienced(text)
+            if years:
+                log.info("Skipping %s — %s: asks for %d+ years.",
+                         row["company"], row["title"], years)
+                skipped.append((row["job_id"], f"experience:{years}"))
                 continue
             try:
                 await channel.send(embed=make_embed(row))
@@ -535,6 +633,9 @@ async def post_feed(feed: dict) -> int:
                 log.error("Failed to post job %s: %s", row["job_id"], e)
 
     db.mark_posted(posted_ids)
+    db.mark_skipped(skipped)
+    if skipped:
+        log.info("Feed '%s': skipped %d role(s) for experience.", feed["name"], len(skipped))
     return len(posted_ids)
 
 
