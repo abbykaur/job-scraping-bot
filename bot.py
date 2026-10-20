@@ -15,10 +15,11 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 # Feed 1 (security) reuses the original CHANNEL_ID; feed 2 (AI/ML) adds one;
-# feed 3 (Houston AI/ML) adds another.
+# feeds 3 and 4 (Houston, Dallas AI/ML) add one each.
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 CHANNEL_ID_AIML = int(os.getenv("CHANNEL_ID_AIML", "0"))
 CHANNEL_ID_HOUSTON_AIML = int(os.getenv("CHANNEL_ID_HOUSTON_AIML", "0"))
+CHANNEL_ID_DALLAS_AIML = int(os.getenv("CHANNEL_ID_DALLAS_AIML", "0"))
 
 # --- Configuration ---
 LISTINGS_URL = (
@@ -42,6 +43,7 @@ JOBSPY_HOURS_OLD = 168  # last 7 days
 # scrape, then a caller-supplied keep(job) predicate filters the normalized results.
 JOBSPY_SF_SECURITY = ("security engineer", "San Francisco, CA")
 JOBSPY_HOUSTON_AIML = ("machine learning engineer", "Houston, TX")
+JOBSPY_DALLAS_AIML = ("machine learning engineer", "Dallas, TX")
 
 # The feed has no "Security" category, so we match security roles by scanning
 # the job title for these keywords. Titles are lowercased before comparison.
@@ -129,6 +131,18 @@ HOUSTON_KEYWORDS = {
     "galveston", "texas city", "friendswood", "cypress", "spring, tx",
 }
 
+# Physical Dallas-Fort Worth metro location keywords, same approach as Houston.
+# Matching is a plain substring test, so suburb names that collide with other
+# places are pinned to ", tx": Arlington VA, Allentown PA, Addison IL, Carrollton GA,
+# Odenton MD ("denton"), Irvington NJ ("irving"), Mesquite NV, Garland UT, etc.
+DALLAS_KEYWORDS = {
+    "dallas", "fort worth", "plano", "frisco", "mckinney", "coppell",
+    "grand prairie", "southlake", "las colinas", "dfw",
+    "irving, tx", "denton, tx", "garland, tx", "mesquite, tx", "lewisville, tx",
+    "grapevine, tx", "arlington, tx", "allen, tx", "addison, tx",
+    "carrollton, tx", "richardson, tx",
+}
+
 # Posted-state now lives in jobs.db (the `posted` column), replacing seen_jobs.json.
 MAX_POSTS_PER_CYCLE = 10
 
@@ -197,6 +211,7 @@ def normalize_simplify(raw: dict) -> dict:
         "is_aiml": int(is_aiml_role(raw)),
         "is_bay": int(is_bay_area(raw) or in_bay_area_scope(raw)),
         "is_houston": int(is_houston_area(raw)),
+        "is_dallas": int(is_dallas_area(raw)),
         "scope": classify_scope(raw),
         "active": int(raw.get("active", True)),
         "date_posted": raw.get("date_posted", 0) or 0,
@@ -256,6 +271,7 @@ def normalize_jobspy(row) -> dict:
         "is_aiml": int(is_aiml_role(as_job)),
         "is_bay": int(is_bay_area(as_job) or (is_remote_flag and scope == "remote")),
         "is_houston": int(is_houston_area(as_job)),
+        "is_dallas": int(is_dallas_area(as_job)),
         "scope": scope,
         "active": 1,
         "date_posted": 0,  # JobSpy gives a date, not the int epoch we sort by
@@ -316,6 +332,14 @@ async def produce_jobspy_houston_aiml() -> int:
     )
 
 
+async def produce_jobspy_dallas_aiml() -> int:
+    """Dallas-Fort Worth AI/ML new-grad roles from job boards."""
+    return await produce_jobspy(
+        JOBSPY_DALLAS_AIML,
+        keep=lambda j: j["is_aiml"] and j["is_dallas"] and is_new_grad(j),
+    )
+
+
 def job_id(job: dict) -> str:
     return str(job.get("id") or f"{job.get('company_name')}|{job.get('title')}|{job.get('url')}")
 
@@ -347,6 +371,11 @@ def is_bay_area(job: dict) -> bool:
 def is_houston_area(job: dict) -> bool:
     """Return True if any of the job's locations explicitly match a Houston-area city."""
     return _location_matches(job, HOUSTON_KEYWORDS)
+
+
+def is_dallas_area(job: dict) -> bool:
+    """Return True if any of the job's locations explicitly match a Dallas-Fort Worth city."""
+    return _location_matches(job, DALLAS_KEYWORDS)
 
 
 def is_remote(job: dict) -> bool:
@@ -437,6 +466,12 @@ FEEDS = [
         "where": "is_aiml=1 AND is_houston=1",
         "intro": "🤠 New Houston **AI/ML** new-grad roles:",
     },
+    {
+        "name": "dallas_aiml",
+        "channel_id": CHANNEL_ID_DALLAS_AIML,
+        "where": "is_aiml=1 AND is_dallas=1",
+        "intro": "🐎 New Dallas-Fort Worth **AI/ML** new-grad roles:",
+    },
 ]
 
 
@@ -511,6 +546,7 @@ async def run_one_cycle():
         ("simplify", produce_simplify),
         ("jobspy-security", produce_jobspy_security),
         ("jobspy-houston-aiml", produce_jobspy_houston_aiml),
+        ("jobspy-dallas-aiml", produce_jobspy_dallas_aiml),
     )
     for name, producer in producers:
         try:
@@ -556,13 +592,14 @@ async def run_once():
 
 @bot.tree.command(name="jobs", description="Show recent new-grad roles from a feed")
 @discord.app_commands.describe(
-    feed="Which feed to show: security, aiml, or houston_aiml",
+    feed="Which feed to show: security, aiml, houston_aiml, or dallas_aiml",
     count="How many to show (1-10)",
 )
 @discord.app_commands.choices(feed=[
     discord.app_commands.Choice(name="security", value="security"),
     discord.app_commands.Choice(name="aiml", value="aiml"),
     discord.app_commands.Choice(name="houston_aiml", value="houston_aiml"),
+    discord.app_commands.Choice(name="dallas_aiml", value="dallas_aiml"),
 ])
 async def jobs_command(
     interaction: discord.Interaction,
@@ -574,7 +611,7 @@ async def jobs_command(
 
     feed_cfg = next((f for f in FEEDS if f["name"] == feed), None)
     if feed_cfg is None:
-        await interaction.followup.send(f"Unknown feed '{feed}'. Try 'security', 'aiml', or 'houston_aiml'.")
+        await interaction.followup.send(f"Unknown feed '{feed}'. Try 'security', 'aiml', 'houston_aiml', or 'dallas_aiml'.")
         return
 
     rows = db.fetch_recent(feed_cfg["where"], limit=count)
@@ -599,6 +636,8 @@ if __name__ == "__main__":
         log.warning("CHANNEL_ID_AIML not set — the AI/ML feed will be skipped.")
     if not CHANNEL_ID_HOUSTON_AIML:
         log.warning("CHANNEL_ID_HOUSTON_AIML not set — the Houston AI/ML feed will be skipped.")
+    if not CHANNEL_ID_DALLAS_AIML:
+        log.warning("CHANNEL_ID_DALLAS_AIML not set — the Dallas AI/ML feed will be skipped.")
     # Run-once mode: do one ingest+post cycle then exit. Scheduled 3x/day on
     # weekdays by Render Cron (see README / render.yaml). The /jobs slash command
     # is unavailable in this mode — there is no persistent process to serve it.

@@ -18,13 +18,14 @@ so the `posted` flag persists — **a job posted once is never posted again.**
    > `jobs.db` is committed intentionally (it's the persistence store).
    > `.env` is gitignored — your token never goes to GitHub.
 
-2. **Add secrets** in the repo: Settings → Secrets and variables → Actions → New repository secret. Add four:
+2. **Add secrets** in the repo: Settings → Secrets and variables → Actions → New repository secret. Add five:
    | Secret | Value |
    |--------|-------|
    | `DISCORD_TOKEN` | your bot token |
    | `CHANNEL_ID` | security-feed channel ID |
    | `CHANNEL_ID_AIML` | AI/ML-feed channel ID |
 | `CHANNEL_ID_HOUSTON_AIML` | Houston AI/ML-feed channel ID (`#houstin-ai-ds-newgrad`) |
+| `CHANNEL_ID_DALLAS_AIML` | Dallas AI/ML-feed channel ID (`#dallas-ai-ds-newgrad`) |
 
 3. **Enable Actions write access** (needed to commit `jobs.db` back):
    Settings → Actions → General → Workflow permissions → **Read and write permissions** → Save.

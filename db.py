@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     is_aiml      INTEGER NOT NULL DEFAULT 0,
     is_bay       INTEGER NOT NULL DEFAULT 0,
     is_houston   INTEGER NOT NULL DEFAULT 0,
+    is_dallas    INTEGER NOT NULL DEFAULT 0,
     scope        TEXT NOT NULL DEFAULT 'none',  -- 'local' | 'remote' | 'none'
     active       INTEGER NOT NULL DEFAULT 1,
     posted       INTEGER NOT NULL DEFAULT 0,     -- 0 until sent to Discord
@@ -40,6 +41,7 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_security ON jobs(posted, is_bay, is_security);",
     "CREATE INDEX IF NOT EXISTS idx_aiml ON jobs(posted, is_bay, is_aiml);",
     "CREATE INDEX IF NOT EXISTS idx_houston_aiml ON jobs(posted, is_houston, is_aiml);",
+    "CREATE INDEX IF NOT EXISTS idx_dallas_aiml ON jobs(posted, is_dallas, is_aiml);",
 ]
 
 
@@ -66,6 +68,7 @@ def init_db() -> None:
 # Columns that may be missing from an older jobs.db, with their ADD COLUMN DDL.
 _MIGRATIONS = {
     "is_houston": "ALTER TABLE jobs ADD COLUMN is_houston INTEGER NOT NULL DEFAULT 0",
+    "is_dallas": "ALTER TABLE jobs ADD COLUMN is_dallas INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -81,7 +84,7 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
 
     `job` is the normalized dict with keys matching the columns:
     job_id, source, company, title, url, location, category,
-    is_security, is_aiml, is_bay, is_houston, scope, active, date_posted, first_seen.
+    is_security, is_aiml, is_bay, is_houston, is_dallas, scope, active, date_posted, first_seen.
 
     On re-seeing a job (same job_id) we REFRESH the mutable fields the source
     may have changed (active/scope/title/location/url and the derived flags),
@@ -93,10 +96,10 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
         """
         INSERT INTO jobs
           (job_id, source, company, title, url, location, category,
-           is_security, is_aiml, is_bay, is_houston, scope, active, date_posted, first_seen)
+           is_security, is_aiml, is_bay, is_houston, is_dallas, scope, active, date_posted, first_seen)
         VALUES
           (:job_id, :source, :company, :title, :url, :location, :category,
-           :is_security, :is_aiml, :is_bay, :is_houston, :scope, :active, :date_posted, :first_seen)
+           :is_security, :is_aiml, :is_bay, :is_houston, :is_dallas, :scope, :active, :date_posted, :first_seen)
         ON CONFLICT(job_id) DO UPDATE SET
           company     = excluded.company,
           title       = excluded.title,
@@ -107,6 +110,7 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
           is_aiml     = excluded.is_aiml,
           is_bay      = excluded.is_bay,
           is_houston  = excluded.is_houston,
+          is_dallas   = excluded.is_dallas,
           scope       = excluded.scope,
           active      = excluded.active,
           date_posted = excluded.date_posted
