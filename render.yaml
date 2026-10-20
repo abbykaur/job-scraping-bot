@@ -24,6 +24,8 @@ services:
         sync: false
       - key: CHANNEL_ID_AIML
         sync: false
+      - key: CHANNEL_ID_HOUSTON_AIML
+        sync: false
 
   # ── Run 2: 1:00 PM PT — mid-day / after-lunch updates ──────────────────────
   - type: cron
@@ -38,6 +40,8 @@ services:
       - key: CHANNEL_ID
         sync: false
       - key: CHANNEL_ID_AIML
+        sync: false
+      - key: CHANNEL_ID_HOUSTON_AIML
         sync: false
 
   # ── Run 3: 5:30 PM PT — end-of-day cleanups ────────────────────────────────
@@ -54,4 +58,6 @@ services:
       - key: CHANNEL_ID
         sync: false
       - key: CHANNEL_ID_AIML
+        sync: false
+      - key: CHANNEL_ID_HOUSTON_AIML
         sync: false

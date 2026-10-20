@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     is_security  INTEGER NOT NULL DEFAULT 0,
     is_aiml      INTEGER NOT NULL DEFAULT 0,
     is_bay       INTEGER NOT NULL DEFAULT 0,
+    is_houston   INTEGER NOT NULL DEFAULT 0,
     scope        TEXT NOT NULL DEFAULT 'none',  -- 'local' | 'remote' | 'none'
     active       INTEGER NOT NULL DEFAULT 1,
     posted       INTEGER NOT NULL DEFAULT 0,     -- 0 until sent to Discord
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_security ON jobs(posted, is_bay, is_security);",
     "CREATE INDEX IF NOT EXISTS idx_aiml ON jobs(posted, is_bay, is_aiml);",
+    "CREATE INDEX IF NOT EXISTS idx_houston_aiml ON jobs(posted, is_houston, is_aiml);",
 ]
 
 
@@ -48,11 +50,30 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the table + indexes if they don't exist. Idempotent."""
+    """Create the table + indexes if they don't exist. Idempotent.
+
+    Also runs a lightweight column migration: an existing jobs.db (created before
+    a column was added) is missing newer columns, and CREATE TABLE IF NOT EXISTS
+    won't add them — so we ALTER TABLE for any column in the schema that's absent.
+    """
     with _connect() as conn:
         conn.execute(SCHEMA)
+        _migrate_columns(conn)
         for stmt in INDEXES:
             conn.execute(stmt)
+
+
+# Columns that may be missing from an older jobs.db, with their ADD COLUMN DDL.
+_MIGRATIONS = {
+    "is_houston": "ALTER TABLE jobs ADD COLUMN is_houston INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def _migrate_columns(conn: sqlite3.Connection) -> None:
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    for col, ddl in _MIGRATIONS.items():
+        if col not in existing:
+            conn.execute(ddl)
 
 
 def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
@@ -60,7 +81,7 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
 
     `job` is the normalized dict with keys matching the columns:
     job_id, source, company, title, url, location, category,
-    is_security, is_aiml, is_bay, scope, active, date_posted, first_seen.
+    is_security, is_aiml, is_bay, is_houston, scope, active, date_posted, first_seen.
 
     On re-seeing a job (same job_id) we REFRESH the mutable fields the source
     may have changed (active/scope/title/location/url and the derived flags),
@@ -72,10 +93,10 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
         """
         INSERT INTO jobs
           (job_id, source, company, title, url, location, category,
-           is_security, is_aiml, is_bay, scope, active, date_posted, first_seen)
+           is_security, is_aiml, is_bay, is_houston, scope, active, date_posted, first_seen)
         VALUES
           (:job_id, :source, :company, :title, :url, :location, :category,
-           :is_security, :is_aiml, :is_bay, :scope, :active, :date_posted, :first_seen)
+           :is_security, :is_aiml, :is_bay, :is_houston, :scope, :active, :date_posted, :first_seen)
         ON CONFLICT(job_id) DO UPDATE SET
           company     = excluded.company,
           title       = excluded.title,
@@ -85,6 +106,7 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> None:
           is_security = excluded.is_security,
           is_aiml     = excluded.is_aiml,
           is_bay      = excluded.is_bay,
+          is_houston  = excluded.is_houston,
           scope       = excluded.scope,
           active      = excluded.active,
           date_posted = excluded.date_posted

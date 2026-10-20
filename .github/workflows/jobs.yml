@@ -42,6 +42,7 @@ jobs:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           CHANNEL_ID_AIML: ${{ secrets.CHANNEL_ID_AIML }}
+          CHANNEL_ID_HOUSTON_AIML: ${{ secrets.CHANNEL_ID_HOUSTON_AIML }}
         run: python bot.py
 
       - name: Persist jobs.db (only if it changed)

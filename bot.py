@@ -14,9 +14,11 @@ from datetime import datetime, timezone
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-# Feed 1 (security) reuses the original CHANNEL_ID; feed 2 (AI/ML) adds one.
+# Feed 1 (security) reuses the original CHANNEL_ID; feed 2 (AI/ML) adds one;
+# feed 3 (Houston AI/ML) adds another.
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 CHANNEL_ID_AIML = int(os.getenv("CHANNEL_ID_AIML", "0"))
+CHANNEL_ID_HOUSTON_AIML = int(os.getenv("CHANNEL_ID_HOUSTON_AIML", "0"))
 
 # --- Configuration ---
 LISTINGS_URL = (
@@ -33,10 +35,13 @@ AIML_CATEGORIES = {
 # JobSpy producer config: scrape real job boards for Bay Area security roles.
 # Start minimal (Indeed only) to validate before adding scrape surface/block risk.
 JOBSPY_SITES = ["indeed"]
-JOBSPY_SEARCH_TERM = "security engineer"
-JOBSPY_LOCATION = "San Francisco, CA"
 JOBSPY_RESULTS_WANTED = 30
 JOBSPY_HOURS_OLD = 168  # last 7 days
+
+# Each JobSpy scrape is defined by a search term + location. The producer runs the
+# scrape, then a caller-supplied keep(job) predicate filters the normalized results.
+JOBSPY_SF_SECURITY = ("security engineer", "San Francisco, CA")
+JOBSPY_HOUSTON_AIML = ("machine learning engineer", "Houston, TX")
 
 # The feed has no "Security" category, so we match security roles by scanning
 # the job title for these keywords. Titles are lowercased before comparison.
@@ -85,6 +90,16 @@ SENIORITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# AI/ML title keywords — used to classify board-scraped jobs (JobSpy), which have
+# no SimplifyJobs-style category. Word-boundary matched; kept tight to avoid false
+# positives (e.g. "ml" only as a standalone token, not inside "html"/"xml").
+AIML_TITLE_RE = re.compile(
+    r"\b(machine learning|deep learning|artificial intelligence|"
+    r"data scien(ce|tist)|ml engineer|ai engineer|mlops|"
+    r"nlp|computer vision|ml|ai)\b",
+    re.IGNORECASE,
+)
+
 # Physical Bay Area location keywords
 BAY_AREA_KEYWORDS = {
     "san francisco", "bay area", "palo alto", "mountain view", "sunnyvale",
@@ -99,6 +114,19 @@ BAY_AREA_COMPANIES = {
     "nvidia", "amd", "intel", "adobe", "roblox", "stripe", "openai", "anthropic",
     "linkedin", "pinterest", "zoom", "splunk", "twilio", "coinbase", "robinhood",
     "snowflake", "asana", "datadog", "instacart", "flexport", "cruise"
+}
+
+# Physical Greater Houston metro location keywords. Parallel to BAY_AREA_KEYWORDS
+# — a second geography rather than a generalized region model (rule of three: we
+# generalize when a 3rd city appears, not before). Unlike the Bay Area, we don't
+# track a Houston remote-company list, so Houston matches on physical location only.
+# Kept to distinctive metro city names; ambiguous ones that collide with cities in
+# other states (e.g. "pasadena", "richmond", "spring") are omitted to avoid false
+# positives, since matching is a plain substring test on the location string.
+HOUSTON_KEYWORDS = {
+    "houston", "sugar land", "the woodlands", "katy", "pearland", "conroe",
+    "baytown", "league city", "missouri city", "humble", "kingwood", "tomball",
+    "galveston", "texas city", "friendswood", "cypress", "spring, tx",
 }
 
 # Posted-state now lives in jobs.db (the `posted` column), replacing seen_jobs.json.
@@ -168,6 +196,7 @@ def normalize_simplify(raw: dict) -> dict:
         "is_security": int(is_security_role(raw)),
         "is_aiml": int(is_aiml_role(raw)),
         "is_bay": int(is_bay_area(raw) or in_bay_area_scope(raw)),
+        "is_houston": int(is_houston_area(raw)),
         "scope": classify_scope(raw),
         "active": int(raw.get("active", True)),
         "date_posted": raw.get("date_posted", 0) or 0,
@@ -226,6 +255,7 @@ def normalize_jobspy(row) -> dict:
         "is_security": int(is_security_role(as_job)),
         "is_aiml": int(is_aiml_role(as_job)),
         "is_bay": int(is_bay_area(as_job) or (is_remote_flag and scope == "remote")),
+        "is_houston": int(is_houston_area(as_job)),
         "scope": scope,
         "active": 1,
         "date_posted": 0,  # JobSpy gives a date, not the int epoch we sort by
@@ -233,42 +263,57 @@ def normalize_jobspy(row) -> dict:
     }
 
 
-def _scrape_jobspy():
+def _scrape_jobspy(search_term: str, location: str):
     """Blocking JobSpy call, run in a thread by produce_jobspy."""
     from jobspy import scrape_jobs
     return scrape_jobs(
         site_name=JOBSPY_SITES,
-        search_term=JOBSPY_SEARCH_TERM,
-        location=JOBSPY_LOCATION,
+        search_term=search_term,
+        location=location,
         results_wanted=JOBSPY_RESULTS_WANTED,
         hours_old=JOBSPY_HOURS_OLD,
         country_indeed="USA",
     )
 
 
-async def produce_jobspy() -> int:
-    """Producer: scrape job boards for security roles, normalize, upsert.
+async def produce_jobspy(search, keep) -> int:
+    """Generic JobSpy producer: scrape one (term, location), normalize, filter, upsert.
 
-    JobSpy is synchronous, so it runs in a worker thread to avoid blocking the
-    Discord event loop. We do NOT prune the 'jobspy' source: a scrape returns
-    only a sample (results_wanted), not a full snapshot, so absence doesn't mean
-    a job is gone. Board search is fuzzy and not inherently new-grad, so we keep
-    only jobs that are security + Bay Area + new-grad (exclude Senior/Staff/etc).
+    `search` is a (search_term, location) tuple; `keep` is a predicate over a
+    normalized job dict deciding what to ingest. JobSpy is synchronous, so it runs
+    in a worker thread to avoid blocking the Discord event loop. We do NOT prune the
+    'jobspy' source: a scrape returns only a sample (results_wanted), not a full
+    snapshot, so absence doesn't mean a job is gone. Board search is fuzzy and not
+    inherently new-grad, so `keep` must enforce role/location/new-grad.
     """
+    search_term, location = search
     try:
-        df = await asyncio.to_thread(_scrape_jobspy)
+        df = await asyncio.to_thread(_scrape_jobspy, search_term, location)
     except Exception as e:
-        log.error("JobSpy scrape failed: %s", e)
+        log.error("JobSpy scrape failed (%s @ %s): %s", search_term, location, e)
         return 0
 
     normalized = [normalize_jobspy(row) for _, row in df.iterrows()]
-    normalized = [
-        j for j in normalized
-        if j["is_security"] and j["is_bay"] and is_new_grad(j)
-    ]
+    normalized = [j for j in normalized if keep(j)]
     if not normalized:
         return 0
     return db.ingest(normalized)
+
+
+async def produce_jobspy_security() -> int:
+    """SF security new-grad roles from job boards."""
+    return await produce_jobspy(
+        JOBSPY_SF_SECURITY,
+        keep=lambda j: j["is_security"] and j["is_bay"] and is_new_grad(j),
+    )
+
+
+async def produce_jobspy_houston_aiml() -> int:
+    """Houston AI/ML new-grad roles from job boards."""
+    return await produce_jobspy(
+        JOBSPY_HOUSTON_AIML,
+        keep=lambda j: j["is_aiml"] and j["is_houston"] and is_new_grad(j),
+    )
 
 
 def job_id(job: dict) -> str:
@@ -282,16 +327,26 @@ def format_locations(job: dict) -> str:
     return job.get("location", "Not specified")
 
 
-def is_bay_area(job: dict) -> bool:
-    """Return True if any of the job's locations explicitly match a Bay Area city."""
+def _location_matches(job: dict, keywords: set) -> bool:
+    """True if any of the job's locations contains one of the given city keywords."""
     locs = job.get("locations") or job.get("location") or []
     if isinstance(locs, str):
         locs = [locs]
     for loc in locs:
         loc_lower = loc.lower()
-        if any(keyword in loc_lower for keyword in BAY_AREA_KEYWORDS):
+        if any(keyword in loc_lower for keyword in keywords):
             return True
     return False
+
+
+def is_bay_area(job: dict) -> bool:
+    """Return True if any of the job's locations explicitly match a Bay Area city."""
+    return _location_matches(job, BAY_AREA_KEYWORDS)
+
+
+def is_houston_area(job: dict) -> bool:
+    """Return True if any of the job's locations explicitly match a Houston-area city."""
+    return _location_matches(job, HOUSTON_KEYWORDS)
 
 
 def is_remote(job: dict) -> bool:
@@ -311,8 +366,16 @@ def is_security_role(job: dict) -> bool:
 
 
 def is_aiml_role(job: dict) -> bool:
-    """Return True if the job's source category is an AI/ML/Data category."""
-    return job.get("category", "") in AIML_CATEGORIES
+    """Return True if the job is an AI/ML/Data role.
+
+    Two signals: SimplifyJobs provides a structured `category` (authoritative when
+    present); JobSpy provides only a free-text title, so we also match AI/ML title
+    keywords. This keeps the predicate source-agnostic — feeds don't care where a
+    job came from. Title terms are kept tight to avoid false positives.
+    """
+    if job.get("category", "") in AIML_CATEGORIES:
+        return True
+    return bool(AIML_TITLE_RE.search(str(job.get("title", ""))))
 
 
 def is_new_grad(job: dict) -> bool:
@@ -367,6 +430,12 @@ FEEDS = [
         "channel_id": CHANNEL_ID_AIML,
         "where": "is_aiml=1 AND is_bay=1",
         "intro": "🤖 New Bay Area **AI/ML** new-grad roles:",
+    },
+    {
+        "name": "houston_aiml",
+        "channel_id": CHANNEL_ID_HOUSTON_AIML,
+        "where": "is_aiml=1 AND is_houston=1",
+        "intro": "🤠 New Houston **AI/ML** new-grad roles:",
     },
 ]
 
@@ -438,7 +507,12 @@ async def run_one_cycle():
     """One full pass: run all producers, then post each feed. Scheduling-agnostic."""
     # 1. Producers write normalized jobs into the DB. Each is isolated so one
     #    failing source (e.g. a JobSpy block) never stops the others.
-    for name, producer in (("simplify", produce_simplify), ("jobspy", produce_jobspy)):
+    producers = (
+        ("simplify", produce_simplify),
+        ("jobspy-security", produce_jobspy_security),
+        ("jobspy-houston-aiml", produce_jobspy_houston_aiml),
+    )
+    for name, producer in producers:
         try:
             n = await producer()
             log.info("Producer '%s' ingested %d job(s).", name, n)
@@ -480,14 +554,15 @@ async def run_once():
     log.info("Run-once cycle complete; exiting.")
 
 
-@bot.tree.command(name="jobs", description="Show recent Bay Area new-grad roles from a feed")
+@bot.tree.command(name="jobs", description="Show recent new-grad roles from a feed")
 @discord.app_commands.describe(
-    feed="Which feed to show: security or aiml",
+    feed="Which feed to show: security, aiml, or houston_aiml",
     count="How many to show (1-10)",
 )
 @discord.app_commands.choices(feed=[
     discord.app_commands.Choice(name="security", value="security"),
     discord.app_commands.Choice(name="aiml", value="aiml"),
+    discord.app_commands.Choice(name="houston_aiml", value="houston_aiml"),
 ])
 async def jobs_command(
     interaction: discord.Interaction,
@@ -499,7 +574,7 @@ async def jobs_command(
 
     feed_cfg = next((f for f in FEEDS if f["name"] == feed), None)
     if feed_cfg is None:
-        await interaction.followup.send(f"Unknown feed '{feed}'. Try 'security' or 'aiml'.")
+        await interaction.followup.send(f"Unknown feed '{feed}'. Try 'security', 'aiml', or 'houston_aiml'.")
         return
 
     rows = db.fetch_recent(feed_cfg["where"], limit=count)
@@ -522,6 +597,8 @@ if __name__ == "__main__":
         raise SystemExit("CHANNEL_ID not set in .env (security feed channel)")
     if not CHANNEL_ID_AIML:
         log.warning("CHANNEL_ID_AIML not set — the AI/ML feed will be skipped.")
+    if not CHANNEL_ID_HOUSTON_AIML:
+        log.warning("CHANNEL_ID_HOUSTON_AIML not set — the Houston AI/ML feed will be skipped.")
     # Run-once mode: do one ingest+post cycle then exit. Scheduled 3x/day on
     # weekdays by Render Cron (see README / render.yaml). The /jobs slash command
     # is unavailable in this mode — there is no persistent process to serve it.
