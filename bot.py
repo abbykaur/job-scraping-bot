@@ -254,14 +254,25 @@ async def fetch_posting(session: aiohttp.ClientSession, url: str) -> tuple[bool,
 def min_years_required(text: str) -> int | None:
     """Smallest years-of-experience number the posting asks for, or None if none.
 
-    Only counts year mentions tied to "experience" (within 60 chars after or 30
-    before), so "18 years of age" or "within 2 years of graduating" are ignored.
+    A year mention counts if either:
+      - it's shaped like a requirement: "3+ years", "4-12 yrs", "5 or more years"
+        (catches "3+ years in platform security", which never says "experience"), or
+      - "experience" appears within 60 chars after or 30 before ("5 years of
+        related work experience", "Experience: 2 years").
+    Either way, it's ignored when it's about age, company history, or recency
+    ("18+ years of age", "25+ years serving clients", "within the past 3 years").
     """
     found = []
     for m in YEARS_RE.finditer(text):
         after = text[m.end():m.end() + 60].lower()
         before = text[max(0, m.start() - 30):m.start()].lower()
-        if "experience" not in after and "experience" not in before:
+        if re.match(r"\W*(of age|old\b|history|in business|serving)", after):
+            continue
+        if re.search(r"\b(within|past|last)\s*(the\s+)?(past\s+)?$", before):
+            continue
+        phrase = m.group(0).lower()
+        shaped = "+" in phrase or "plus" in phrase or "or more" in phrase or m.group(2)
+        if not shaped and "experience" not in after and "experience" not in before:
             continue
         n = m.group(1).lower()
         found.append(int(n) if n.isdigit() else _NUM_WORDS[n])
