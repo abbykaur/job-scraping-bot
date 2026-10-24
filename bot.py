@@ -155,6 +155,10 @@ CANDIDATES_PER_FEED = 30
 # We take the minimum across mentions so "BS + 3 years OR MS + 1 year" reads as 1,
 # and new-grad ranges like "0-2 years" pass. Postings we can't read are kept.
 MAX_YEARS_REQUIRED = 2
+# A PhD path ("PhD + 2 years") is held to a stricter cutoff: a PhD plus
+# 2 years isn't new grad, but "PhD + 0-1 years" is.
+MAX_YEARS_REQUIRED_PHD = 1
+PHD_RE = re.compile(r"ph\.?\s?d|doctora", re.IGNORECASE)
 
 _NUM_WORDS = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
@@ -251,8 +255,8 @@ async def fetch_posting(session: aiohttp.ClientSession, url: str) -> tuple[bool,
         return True, ""
 
 
-def min_years_required(text: str) -> int | None:
-    """Smallest years-of-experience number the posting asks for, or None if none.
+def experience_paths(text: str) -> list[tuple[int, bool]]:
+    """Every years-of-experience requirement in a posting, as (years, is_phd).
 
     A year mention counts if either:
       - it's shaped like a requirement: "3+ years", "4-12 yrs", "5 or more years"
@@ -261,8 +265,9 @@ def min_years_required(text: str) -> int | None:
         related work experience", "Experience: 2 years").
     Either way, it's ignored when it's about age, company history, or recency
     ("18+ years of age", "25+ years serving clients", "within the past 3 years").
+    is_phd marks paths like "OR PhD + 2 years", judged by MAX_YEARS_REQUIRED_PHD.
     """
-    found = []
+    paths = []
     for m in YEARS_RE.finditer(text):
         after = text[m.end():m.end() + 60].lower()
         before = text[max(0, m.start() - 30):m.start()].lower()
@@ -275,16 +280,34 @@ def min_years_required(text: str) -> int | None:
         if not shaped and "experience" not in after and "experience" not in before:
             continue
         n = m.group(1).lower()
-        found.append(int(n) if n.isdigit() else _NUM_WORDS[n])
-    return min(found) if found else None
+        years = int(n) if n.isdigit() else _NUM_WORDS[n]
+        is_phd = bool(PHD_RE.search(text[max(0, m.start() - 20):m.start()]))
+        paths.append((years, is_phd))
+    return paths
+
+
+def min_years_required(text: str) -> int | None:
+    """Smallest years number the posting asks for on any path, or None if none."""
+    paths = experience_paths(text)
+    return min(y for y, _ in paths) if paths else None
 
 
 def too_experienced(text: str) -> int | None:
-    """Return the required years if the posting asks for too much, else None."""
-    years = min_years_required(text)
-    if years is not None and years > MAX_YEARS_REQUIRED:
-        return years
-    return None
+    """Return the required years if NO path is new-grad friendly, else None.
+
+    Each requirement is its own path: "BS + 3 years OR MS + 1 year" passes on
+    the MS path. Normal paths pass at <= MAX_YEARS_REQUIRED years, PhD paths at
+    <= MAX_YEARS_REQUIRED_PHD. Postings that list no years always pass.
+    """
+    paths = experience_paths(text)
+    if not paths:
+        return None
+    for years, is_phd in paths:
+        if years <= (MAX_YEARS_REQUIRED_PHD if is_phd else MAX_YEARS_REQUIRED):
+            return None
+    # Report the non-PhD requirement if there is one ("5+"), else the PhD one.
+    normal = [y for y, phd in paths if not phd]
+    return min(normal) if normal else min(y for y, _ in paths)
 
 
 def normalize_simplify(raw: dict) -> dict:
