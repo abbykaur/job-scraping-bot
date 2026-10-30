@@ -26,6 +26,7 @@ so the `posted` flag persists — **a job posted once is never posted again.**
    | `CHANNEL_ID_AIML` | AI/ML-feed channel ID |
 | `CHANNEL_ID_HOUSTON_AIML` | Houston AI/ML-feed channel ID (`#houstin-ai-ds-newgrad`) |
 | `CHANNEL_ID_DALLAS_AIML` | Dallas AI/ML-feed channel ID (`#dallas-ai-ds-newgrad`) |
+| `CHANNEL_ID_ATLANTA_AIML` | Atlanta AI/ML-feed channel ID (`#atlanta-ai-ds-newgrad`) |
 
 3. **Enable Actions write access** (needed to commit `jobs.db` back):
    Settings → Actions → General → Workflow permissions → **Read and write permissions** → Save.
