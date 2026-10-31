@@ -1,7 +1,81 @@
 {
-  "seen": {},
-  "drafts": {},
+  "seen": {
+    "https://techcrunch.com/2026/10/30/nvidia-weighs-playing-the-cosigner-for-nscales-ai-data-center-in-west-virginia/": "2026-10-31T08:04:47.744128+00:00",
+    "https://www.theverge.com/tech/1023974/apple-intelligence-china-ios-27-3": "2026-10-31T08:04:49.604859+00:00",
+    "https://www.technologyreview.com/2026/10/29/1147824/monitor-ai-agents-actions-real-time/": "2026-10-31T08:04:50.846552+00:00",
+    "https://arstechnica.com/gadgets/2026/10/united-airlines-ceo-doubts-supersonic-airliner-from-boom-will-be-ready-by-2029/": "2026-10-31T08:04:52.153337+00:00",
+    "https://openai.com/index/helping-websites-express-ai-training-preferences": "2026-10-31T08:04:55.195364+00:00",
+    "https://deepmind.google/blog/gemini-4-carbon-our-next-frontier-model/": "2026-10-31T08:04:56.546047+00:00",
+    "https://techcrunch.com/2026/10/30/ollie-a-privacy-focused-ai-assistant-is-shutting-down/": "2026-10-31T08:04:57.715946+00:00",
+    "https://www.theverge.com/ai-artificial-intelligence/1023820/sam-altman-ram-shortage-cloud-servers": "2026-10-31T08:04:59.250345+00:00"
+  },
+  "drafts": {
+    "1565999971424141444": {
+      "title": "Nvidia weighs playing the cosigner for Nscale’s AI data center in West Virginia",
+      "blurb": "When investors get nervous about AI spending, it helps to have the chipmaker that sells the chips offer to cosign the loan.",
+      "url": "https://techcrunch.com/2026/10/30/nvidia-weighs-playing-the-cosigner-for-nscales-ai-data-center-in-west-virginia/",
+      "source": "TechCrunch",
+      "tag": null,
+      "created": "2026-10-31T08:04:47.744128+00:00"
+    },
+    "1565999977983910072": {
+      "title": "Apple Intelligence is finally coming to China with iOS 27.3",
+      "blurb": "Apple will launch Apple Intelligence in China with iOS 27.3, the company announced on its Chinese newsroom website, as reported by MacRumors. The Apple Intelligence features will be available first…",
+      "url": "https://www.theverge.com/tech/1023974/apple-intelligence-china-ios-27-3",
+      "source": "The Verge",
+      "tag": "Tools",
+      "created": "2026-10-31T08:04:49.604859+00:00"
+    },
+    "1565999983461670996": {
+      "title": "We urgently need to monitor AI agents’ actions in real time",
+      "blurb": "This summer, hundreds of OpenAI agents tried to cheat on a cybersecurity test. They broke out of their test environment and successfully hacked Hugging Face, a site that they believed held clues…",
+      "url": "https://www.technologyreview.com/2026/10/29/1147824/monitor-ai-agents-actions-real-time/",
+      "source": "MIT Technology Review",
+      "tag": "Tools",
+      "created": "2026-10-31T08:04:50.846552+00:00"
+    },
+    "1565999989187022900": {
+      "title": "Supersonic airliner in doubt as company shifts to powering AI data centers",
+      "blurb": "Boom’s airliner may be delayed, and its data center power business lost a customer.",
+      "url": "https://arstechnica.com/gadgets/2026/10/united-airlines-ceo-doubts-supersonic-airliner-from-boom-will-be-ready-by-2029/",
+      "source": "Ars Technica",
+      "tag": null,
+      "created": "2026-10-31T08:04:52.153337+00:00"
+    },
+    "1566000001962872836": {
+      "title": "Making it easier for websites to express AI training preferences",
+      "blurb": "OpenAI will honor a shared robots.txt signal to help website operators communicate their AI training preferences to participating providers.",
+      "url": "https://openai.com/index/helping-websites-express-ai-training-preferences",
+      "source": "OpenAI",
+      "tag": null,
+      "created": "2026-10-31T08:04:55.195364+00:00"
+    },
+    "1566000007331586049": {
+      "title": "Gemini 4 Carbon: Our next frontier model",
+      "blurb": "",
+      "url": "https://deepmind.google/blog/gemini-4-carbon-our-next-frontier-model/",
+      "source": "Google DeepMind",
+      "tag": "Models & Releases",
+      "created": "2026-10-31T08:04:56.546047+00:00"
+    },
+    "1566000013425778750": {
+      "title": "Ollie, a privacy-focused AI assistant, is shutting down",
+      "blurb": "As an increasing number of AI assistants flood the market, the founder of Ollie, an assistant that respected its users' privacy, says it will be shutting down in a week.",
+      "url": "https://techcrunch.com/2026/10/30/ollie-a-privacy-focused-ai-assistant-is-shutting-down/",
+      "source": "TechCrunch",
+      "tag": null,
+      "created": "2026-10-31T08:04:57.715946+00:00"
+    },
+    "1566000018509266977": {
+      "title": "Sam Altman says it’s better for RAM to be in a data center than on your desk",
+      "blurb": "Asked about supply chain shortages, like the ongoing RAM shortage, OpenAI CEO Sam Altman said in an interview that it's \"terrible\" to have RAM in personal PCs instead of data centers. During his…",
+      "url": "https://www.theverge.com/ai-artificial-intelligence/1023820/sam-altman-ram-shortage-cloud-servers",
+      "source": "The Verge",
+      "tag": null,
+      "created": "2026-10-31T08:04:59.250345+00:00"
+    }
+  },
   "last_message_id": 0,
-  "drafted_week": null,
+  "drafted_week": "2026-W44",
   "roundup_week": null
 }
