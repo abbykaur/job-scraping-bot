@@ -239,6 +239,11 @@ async def read_queue_messages(queue: discord.TextChannel, state: dict) -> list[s
         state["last_message_id"] = msg.id
         if msg.author.bot:
             continue
+        if not msg.content and not msg.attachments:
+            # Discord blanks message text for bots without the privileged intent.
+            log.warning("Message %s from %s has no text: turn on Message Content "
+                        "Intent for this bot in the Developer Portal.", msg.id, msg.author)
+            continue
         ref = msg.reference.message_id if msg.reference else None
         if ref and str(ref) in state["drafts"]:
             draft = state["drafts"][str(ref)]
