@@ -329,6 +329,7 @@ async def run_once() -> None:
         # REST only: everything below is a plain API call, so there's no need
         # to open a gateway connection and wait for on_ready.
         await client.login(TOKEN)
+        log.info("Logged in as %s (application %s).", client.user, client.application_id)
         queue = await client.fetch_channel(QUEUE_CHANNEL_ID)
         forum = await client.fetch_channel(FORUM_CHANNEL_ID)
 
