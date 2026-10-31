@@ -58,6 +58,9 @@ PROMO_RE = re.compile(r"\btechcrunch\b|\btickets?\b|\bdays left\b|\blast chance\
 TZ = ZoneInfo("America/Los_Angeles")
 DRAFT_DAYS = {0, 1, 2, 3}          # Monday=0
 ROUNDUP_DAY, ROUNDUP_HOUR = 4, 10  # Friday, 10 AM
+# Every roundup post gets this forum tag first. It's a mod-only tag, which
+# the bot can apply because it has Manage Threads.
+ROUNDUP_TAG = "Weekly Roundup"
 
 WEEKLY_CANDIDATES = 8
 DRAFTS_PER_REQUEST = 3
@@ -73,7 +76,7 @@ HOW_TO = (f"{APPROVE} include in Friday's roundup · {SKIP} leave out · "
 # Forum tag for each story, matched against the title and blurb (lowercased).
 # Keywords match whole words, plural included ("model" hits "models", "ban"
 # doesn't hit "bank"). The first tag with a match wins, so the more specific
-# tags come first. The roundup post gets the tags of the stories in it
+# tags come first. The roundup post gets ROUNDUP_TAG plus the tags of the stories in it
 # (Discord allows 5). Names must match the #ai-news forum's tags.
 TAG_KEYWORDS = {
     "Policy & Safety":    ["regulation", "law", "senate", "eu ai act", "safety", "lawsuit", "copyright", "ban", "alignment"],
@@ -300,7 +303,7 @@ async def post_roundup(queue: discord.TextChannel, forum: discord.ForumChannel,
         await queue.send("No drafts were approved this week, so there's no roundup.")
         return
     monday = (now - timedelta(days=now.weekday())).strftime("%b %-d")
-    tag_names = list(dict.fromkeys(d["tag"].lower() for d in approved if d["tag"]))
+    tag_names = list(dict.fromkeys([ROUNDUP_TAG.lower()] + [d["tag"].lower() for d in approved if d["tag"]]))
     tags = [t for name in tag_names for t in forum.available_tags if t.name.lower() == name][:5]
     first, *rest = roundup_messages(approved, monday)
     post = await forum.create_thread(name=f"AI News Roundup · Week of {monday}",
