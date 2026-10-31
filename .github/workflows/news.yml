@@ -1,0 +1,59 @@
+name: ai-news
+
+# Every 2 hours on weekdays, the news bot reads #news-queue (edits, "more"
+# requests) and works out from the Pacific day what else to do: draft the week's
+# candidates (Monday) or post the roundup (Friday from 10 AM). See news-bot/news.py.
+#
+# GitHub cron is UTC. Firing every 2 hours means the Monday and Friday steps
+# land within 2 hours of their Pacific times all year, through DST changes.
+on:
+  schedule:
+    - cron: "15 */2 * * MON-FRI"
+  workflow_dispatch: {}            # allow manual "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-news
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      NEWS_DISCORD_TOKEN: ${{ secrets.NEWS_DISCORD_TOKEN }}
+      NEWS_QUEUE_CHANNEL_ID: ${{ secrets.NEWS_QUEUE_CHANNEL_ID }}
+      NEWS_FORUM_CHANNEL_ID: ${{ secrets.NEWS_FORUM_CHANNEL_ID }}
+    steps:
+      - name: Checkout (includes last run's state.json)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r news-bot/requirements.txt
+
+      # Skipped (not failed) until the secrets are added, so an unconfigured
+      # bot doesn't send a failure email every 2 hours.
+      - name: Run the news bot (one cycle)
+        if: env.NEWS_DISCORD_TOKEN != ''
+        run: python news-bot/news.py
+
+      # The jobs workflow pushes jobs.db to the same branch, so rebase onto
+      # whatever it pushed while this run was going.
+      - name: Persist state.json (only if it changed)
+        run: |
+          if [[ -n "$(git status --porcelain news-bot/state.json)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add news-bot/state.json
+            git commit -m "Update news-bot state [skip ci]"
+            git pull --rebase
+            git push
+          else
+            echo "state.json unchanged — nothing to commit."
+          fi

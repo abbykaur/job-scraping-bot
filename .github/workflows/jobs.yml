@@ -54,6 +54,8 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add jobs.db
             git commit -m "Update jobs.db (posted-state) [skip ci]"
+            # The news workflow pushes to the same branch; rebase onto it first.
+            git pull --rebase
             git push
           else
             echo "jobs.db unchanged — nothing to commit."
