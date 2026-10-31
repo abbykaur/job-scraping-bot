@@ -39,7 +39,7 @@ The bot checks the queue every 2 hours on weekdays, so a reply or request takes 
    ```
    `gh secret set NEWS_DISCORD_TOKEN` asks you to paste the token, so it never ends up in your shell history. Until these are set, the workflow's runs are skipped instead of failing.
 
-**Run it now (optional):** in the repo's **Actions** tab, open **ai-news** and click **Run workflow**. On Monday–Thursday the first run posts the week's drafts. On Friday or later in the week, it only starts watching the queue. Drafts come the next Monday, unless a mod posts `more`.
+**Run it now:** in the repo's **Actions** tab, open **ai-news** and click **Run workflow**. Leave `force` on `none` for a normal run, which does whatever today's schedule calls for. Pick `draft` to post this week's candidates now, or `roundup` to post the ✅ drafts to #ai-news now. Forcing a roundup closes every open draft, the same way Friday's does.
 
 **Local runs:** put the three values in `news-bot/.env`, then run `python news-bot/news.py`. Local runs post to the real channels, and they save state to your copy of `state.json`. The Actions runs then won't know what was already drafted.
 

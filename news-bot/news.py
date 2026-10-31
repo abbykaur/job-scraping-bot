@@ -35,6 +35,8 @@ load_dotenv(Path(__file__).with_name(".env"))
 TOKEN = os.getenv("NEWS_DISCORD_TOKEN")
 QUEUE_CHANNEL_ID = int(os.getenv("NEWS_QUEUE_CHANNEL_ID", "0"))
 FORUM_CHANNEL_ID = int(os.getenv("NEWS_FORUM_CHANNEL_ID", "0"))
+# Manual runs can force a step regardless of the day: "draft" or "roundup".
+FORCE = os.getenv("NEWS_FORCE", "").strip().lower()
 
 STATE_PATH = Path(__file__).with_name("state.json")
 
@@ -345,7 +347,7 @@ async def run_once() -> None:
         # out with the edit.
         requests = await read_queue_messages(queue, state)
 
-        if now.weekday() in DRAFT_DAYS and state["drafted_week"] != week:
+        if FORCE == "draft" or (now.weekday() in DRAFT_DAYS and state["drafted_week"] != week):
             stories = await loop.run_in_executor(None, weekly_candidates, state, WEEKLY_CANDIDATES)
             await queue.send(f"**This week's AI news candidates.** {HOW_TO}. "
                              f"The roundup posts Friday at {ROUNDUP_HOUR} AM PT. "
@@ -364,8 +366,8 @@ async def run_once() -> None:
             for story in stories[:DRAFTS_PER_REQUEST]:
                 await post_draft(queue, story, state, requested=f"more: {topic or 'feeds'}")
 
-        if (now.weekday() == ROUNDUP_DAY and now.hour >= ROUNDUP_HOUR
-                and state["roundup_week"] != week):
+        if FORCE == "roundup" or (now.weekday() == ROUNDUP_DAY and now.hour >= ROUNDUP_HOUR
+                                  and state["roundup_week"] != week):
             await post_roundup(queue, forum, state, now)
             state["roundup_week"] = week
         log.info("Open drafts: %d.", len(state["drafts"]))

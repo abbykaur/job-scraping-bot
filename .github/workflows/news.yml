@@ -9,7 +9,15 @@ name: ai-news
 on:
   schedule:
     - cron: "15 */2 * * MON-FRI"
-  workflow_dispatch: {}            # allow manual "Run workflow" button
+  # Manual "Run workflow" button. force runs a step now, whatever the day:
+  # draft posts this week's candidates, roundup posts the ✅ drafts to #ai-news.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run a step now"
+        type: choice
+        options: [none, draft, roundup]
+        default: none
 
 permissions:
   contents: write
@@ -25,6 +33,7 @@ jobs:
       NEWS_DISCORD_TOKEN: ${{ secrets.NEWS_DISCORD_TOKEN }}
       NEWS_QUEUE_CHANNEL_ID: ${{ secrets.NEWS_QUEUE_CHANNEL_ID }}
       NEWS_FORUM_CHANNEL_ID: ${{ secrets.NEWS_FORUM_CHANNEL_ID }}
+      NEWS_FORCE: ${{ inputs.force }}
     steps:
       - name: Checkout (includes last run's state.json)
         uses: actions/checkout@v4
