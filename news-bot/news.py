@@ -49,6 +49,9 @@ FEEDS = {
 # "more: <topic>" searches Google News for the past week.
 TOPIC_SEARCH_URL = "https://news.google.com/rss/search?q={q}+when:7d&hl=en-US&gl=US&ceid=US:en"
 FEED_AGENT = "Mozilla/5.0 (compatible; afg-news-bot)"
+# Feeds mix in promos for their own events ("5 days left: save at TechCrunch
+# Founder Summit"). Titles matching this are dropped.
+PROMO_RE = re.compile(r"\btechcrunch\b|\btickets?\b|\bdays left\b|\blast chance\b", re.IGNORECASE)
 
 # Schedule, in Pacific time. Drafting can happen Mon-Thu (in case Monday's run
 # fails), but only once a week; the roundup goes out once, Friday from 10 AM.
@@ -68,19 +71,17 @@ HOW_TO = (f"{APPROVE} include in Friday's roundup · {SKIP} leave out · "
           "reply with title: / blurb: / tag: to edit")
 
 # Forum tag for each story, matched against the title and blurb (lowercased).
-# Keywords match at the start of a word ("regulat" hits "regulation", "law"
-# doesn't hit "flaw"). The first tag with a matching keyword wins, so order matters. The roundup
-# post gets the tags of the stories in it (Discord allows 5). Names must match
-# the #ai-news forum's tags (case doesn't matter); others are ignored.
-#
-# TODO(you): set these to AFG's real forum tags and the words that should
-# trigger each one.
+# Keywords match whole words, plural included ("model" hits "models", "ban"
+# doesn't hit "bank"). The first tag with a match wins, so the more specific
+# tags come first. The roundup post gets the tags of the stories in it
+# (Discord allows 5). Names must match the #ai-news forum's tags.
 TAG_KEYWORDS = {
-    "Policy": ["regulat", "law", "senate", "congress", "eu ai act", "lawsuit", "copyright", "ban"],
-    "Funding": ["raises", "funding", "valuation", "acquir", "ipo", "series a", "series b"],
-    "Research": ["paper", "research", "study", "benchmark", "researchers"],
-    "Open Source": ["open source", "open-source", "open weights", "hugging face"],
-    "Product": ["launch", "release", "announc", "rolls out", "now available", "model"],
+    "Policy & Safety":    ["regulation", "law", "senate", "eu ai act", "safety", "lawsuit", "copyright", "ban", "alignment"],
+    "Startups & Funding": ["raises", "funding", "series a", "series b", "valuation", "acquires", "acquisition", "ipo", "startup"],
+    "Careers":            ["hiring", "layoffs", "jobs", "internship", "workforce", "talent"],
+    "Research":           ["paper", "study", "researchers", "benchmark", "arxiv", "breakthrough"],
+    "Models & Releases":  ["launches", "releases", "gpt", "claude", "gemini", "llama", "model", "open source"],
+    "Tools":              ["app", "tool", "api", "plugin", "feature", "agent", "copilot"],
 }
 
 logging.basicConfig(level=logging.INFO)
@@ -119,7 +120,7 @@ def clean_text(raw: str, limit: int = BLURB_CHARS) -> str:
 def pick_tag(title: str, blurb: str) -> str | None:
     text = f"{title} {blurb}".lower()
     for tag, words in TAG_KEYWORDS.items():
-        if any(re.search(r"\b" + re.escape(w), text) for w in words):
+        if any(re.search(r"\b" + re.escape(w) + r"s?\b", text) for w in words):
             return tag
     return None
 
@@ -140,7 +141,7 @@ def fetch_stories(url: str, source: str | None = None) -> list[dict]:
             # Google News titles end in " - Publisher"; use that as the source.
             name = (e.get("source") or {}).get("title") or "Google News"
             title = title.removesuffix(f" - {name}")
-        if not title or not e.get("link"):
+        if not title or not e.get("link") or PROMO_RE.search(title):
             continue
         blurb = clean_text(e.get("summary", ""))
         if blurb.startswith(title):     # some feeds repeat the title as the summary

@@ -49,7 +49,7 @@ These are all near the top of `news.py`:
 
 | Setting | What it controls |
 |---|---|
-| `TAG_KEYWORDS` | Which forum tag each story gets. Set it to AFG's real forum tags. |
+| `TAG_KEYWORDS` | Which forum tag each story gets. Tag names must match the #ai-news forum's tags exactly. |
 | `FEEDS` | Which RSS feeds the Monday drafts come from. |
 | `WEEKLY_CANDIDATES` | How many drafts Monday posts. |
 | `ROUNDUP_DAY`, `ROUNDUP_HOUR` | When the roundup goes out. |
