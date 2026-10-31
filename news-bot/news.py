@@ -331,6 +331,13 @@ async def run_once() -> None:
         # out with the edit.
         requests = await read_queue_messages(queue, state)
 
+        # Post approved stories before making any new drafts, so drafts made in
+        # this run (e.g. for a "more" request) stay open for mods to review.
+        if FORCE == "roundup" or (now.weekday() == ROUNDUP_DAY and now.hour >= ROUNDUP_HOUR
+                                  and state["roundup_week"] != week):
+            await post_roundup(queue, forum, state)
+            state["roundup_week"] = week
+
         if FORCE == "draft" or (now.weekday() in DRAFT_DAYS and state["drafted_week"] != week):
             stories = await loop.run_in_executor(None, weekly_candidates, state, WEEKLY_CANDIDATES)
             await queue.send(f"**This week's AI news candidates.** {HOW_TO}. "
@@ -350,10 +357,6 @@ async def run_once() -> None:
             for story in stories[:DRAFTS_PER_REQUEST]:
                 await post_draft(queue, story, state, requested=f"more: {topic or 'feeds'}")
 
-        if FORCE == "roundup" or (now.weekday() == ROUNDUP_DAY and now.hour >= ROUNDUP_HOUR
-                                  and state["roundup_week"] != week):
-            await post_roundup(queue, forum, state)
-            state["roundup_week"] = week
         log.info("Open drafts: %d.", len(state["drafts"]))
     save_state(state)
 
