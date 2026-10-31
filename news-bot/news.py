@@ -1,10 +1,11 @@
-"""AI news bot: a weekly roundup for the #ai-news forum, curated by mods.
+"""AI news bot: a weekly batch of stories for the #ai-news forum, curated by mods.
 
 The weekly cycle (Pacific time):
   Monday   the bot drafts the week's top stories into #news-queue (mods only).
   Mon-Fri  mods react ✅ / ❌ on drafts, reply to a draft to edit it, or post
            "more: <topic>" for extra drafts.
-  Friday   from 10 AM, every ✅ draft goes into ONE roundup post in #ai-news.
+  Friday   from 10 AM, every ✅ draft becomes its own post in the #ai-news
+           forum, all at once, so the forum gets new stories once a week.
 
 It runs once per invocation (GitHub Actions, every 2 hours on weekdays), like
 the jobs bot, and works out from the day what to do. There are no buttons:
@@ -60,26 +61,26 @@ PROMO_RE = re.compile(r"\btechcrunch\b|\btickets?\b|\bdays left\b|\blast chance\
 TZ = ZoneInfo("America/Los_Angeles")
 DRAFT_DAYS = {0, 1, 2, 3}          # Monday=0
 ROUNDUP_DAY, ROUNDUP_HOUR = 4, 10  # Friday, 10 AM
-# Every roundup post gets this forum tag first. It's a mod-only tag, which
-# the bot can apply because it has Manage Threads.
+# Every story the bot posts gets this forum tag, next to its topic tag, so it
+# lists all mod-picked stories. It's a mod-only tag, which the bot can apply
+# because it has Manage Threads.
 ROUNDUP_TAG = "Weekly Roundup"
 
 WEEKLY_CANDIDATES = 8
 DRAFTS_PER_REQUEST = 3
 MAX_STORY_AGE = timedelta(days=7)
 SEEN_TTL = timedelta(days=30)
-BLURB_CHARS = 200                  # short enough that 8 stories fit a roundup
+BLURB_CHARS = 300
 
 APPROVE, SKIP = "✅", "❌"
 COLOR_PENDING, COLOR_IN, COLOR_OUT = 0xF1C40F, 0x2ECC71, 0x95A5A6
-HOW_TO = (f"{APPROVE} include in Friday's roundup · {SKIP} leave out · "
+HOW_TO = (f"{APPROVE} post Friday · {SKIP} leave out · "
           "reply with title: / blurb: / tag: to edit")
 
 # Forum tag for each story, matched against the title and blurb (lowercased).
 # Keywords match whole words, plural included ("model" hits "models", "ban"
 # doesn't hit "bank"). The first tag with a match wins, so the more specific
-# tags come first. The roundup post gets ROUNDUP_TAG plus the tags of the stories in it
-# (Discord allows 5). Names must match the #ai-news forum's tags.
+# tags come first. Names must match the #ai-news forum's tags.
 TAG_KEYWORDS = {
     "Policy & Safety":    ["regulation", "law", "senate", "eu ai act", "safety", "lawsuit", "copyright", "ban", "alignment"],
     "Startups & Funding": ["raises", "funding", "series a", "series b", "valuation", "acquires", "acquisition", "ipo", "startup"],
@@ -200,8 +201,8 @@ def draft_embed(d: dict, status: str = "pending", by: str | None = None) -> disc
     if d.get("requested"):
         embed.add_field(name="Requested", value=d["requested"])
     footer = {"pending": HOW_TO,
-              "included": f"In this week's roundup (approved by {by})",
-              "left_out": "Not in this week's roundup"}[status]
+              "included": f"Posted to #ai-news (approved by {by})",
+              "left_out": "Not posted this week"}[status]
     embed.set_footer(text=footer)
     return embed
 
@@ -218,27 +219,10 @@ def parse_edit(text: str) -> dict:
     if "title" in edits:
         edits["title"] = edits["title"][:100]
     if "blurb" in edits:
-        edits["blurb"] = edits["blurb"][:500]  # keeps each roundup entry well under 2000
+        edits["blurb"] = edits["blurb"][:1500]  # leaves room for the link in a 2000-char post
     if edits.get("tag", "").lower() == "none":
         edits["tag"] = None
     return edits
-
-
-def roundup_messages(stories: list[dict], week_of: str) -> list[str]:
-    """The roundup as Discord messages: the post itself, then overflow replies.
-
-    Links are wrapped in <> so Discord doesn't unfurl a preview for each one.
-    """
-    entries = []
-    for s in stories:
-        line = f"**[{s['title']}](<{s['url']}>)** · {s['source']}"
-        entries.append(f"{line}\n{s['blurb']}" if s["blurb"] else line)
-    messages = [f"This week's AI news, picked by the mods. Week of {week_of}.\n"]
-    for entry in entries:
-        if len(messages[-1]) + len(entry) + 2 > 2000:
-            messages.append("")
-        messages[-1] += f"\n{entry}\n"
-    return [m.strip() for m in messages]
 
 
 async def read_queue_messages(queue: discord.TextChannel, state: dict) -> list[str | None]:
@@ -284,8 +268,8 @@ async def decided_by(msg: discord.Message, emoji: str) -> str | None:
 
 
 async def post_roundup(queue: discord.TextChannel, forum: discord.ForumChannel,
-                       state: dict, now: datetime) -> None:
-    """Friday: put every ✅ draft in one forum post, and close out the rest."""
+                       state: dict) -> None:
+    """Friday: post every ✅ draft as its own forum post, and close out the rest."""
     if not state["drafts"]:
         return                             # nothing was drafted (e.g. first week)
     approved = []
@@ -302,18 +286,18 @@ async def post_roundup(queue: discord.TextChannel, forum: discord.ForumChannel,
     state["drafts"] = {}
 
     if not approved:
-        await queue.send("No drafts were approved this week, so there's no roundup.")
+        await queue.send("No drafts were approved this week, so nothing was posted to #ai-news.")
         return
-    monday = (now - timedelta(days=now.weekday())).strftime("%b %-d")
-    tag_names = list(dict.fromkeys([ROUNDUP_TAG.lower()] + [d["tag"].lower() for d in approved if d["tag"]]))
-    tags = [t for name in tag_names for t in forum.available_tags if t.name.lower() == name][:5]
-    first, *rest = roundup_messages(approved, monday)
-    post = await forum.create_thread(name=f"AI News Roundup · Week of {monday}",
-                                     content=first, applied_tags=tags)
-    for text in rest:
-        await post.thread.send(text)
-    await queue.send(f"Posted this week's roundup with {len(approved)} stories: {post.thread.jump_url}")
-    log.info("Posted roundup with %d stories.", len(approved))
+    tags_by_name = {t.name.lower(): t for t in forum.available_tags}
+    for d in approved:
+        names = [ROUNDUP_TAG] + ([d["tag"]] if d["tag"] else [])
+        tags = [tags_by_name[n.lower()] for n in names if n.lower() in tags_by_name]
+        # The bare link lets Discord show the article's preview under the blurb.
+        content = f"{d['blurb']}\n\n{d['url']}".strip()
+        await forum.create_thread(name=d["title"], content=content[:2000], applied_tags=tags)
+    await queue.send(f"Posted this week's {len(approved)} approved "
+                     f"{'story' if len(approved) == 1 else 'stories'} to {forum.mention}.")
+    log.info("Posted %d stories.", len(approved))
 
 
 async def post_draft(queue: discord.TextChannel, story: dict, state: dict,
@@ -350,7 +334,7 @@ async def run_once() -> None:
         if FORCE == "draft" or (now.weekday() in DRAFT_DAYS and state["drafted_week"] != week):
             stories = await loop.run_in_executor(None, weekly_candidates, state, WEEKLY_CANDIDATES)
             await queue.send(f"**This week's AI news candidates.** {HOW_TO}. "
-                             f"The roundup posts Friday at {ROUNDUP_HOUR} AM PT. "
+                             f"Approved stories post to #ai-news Friday at {ROUNDUP_HOUR} AM PT. "
                              "Post `more: <topic>` for extra drafts.")
             for story in stories:
                 await post_draft(queue, story, state)
@@ -368,7 +352,7 @@ async def run_once() -> None:
 
         if FORCE == "roundup" or (now.weekday() == ROUNDUP_DAY and now.hour >= ROUNDUP_HOUR
                                   and state["roundup_week"] != week):
-            await post_roundup(queue, forum, state, now)
+            await post_roundup(queue, forum, state)
             state["roundup_week"] = week
         log.info("Open drafts: %d.", len(state["drafts"]))
     save_state(state)

@@ -1,12 +1,12 @@
 # AI news bot
 
-A weekly AI news roundup for the AFG server, curated by mods.
+A weekly batch of AI news for the AFG server, curated by mods.
 
 | When (Pacific) | What happens |
 |---|---|
 | Monday | The bot posts about 8 of the week's AI stories as drafts in **#news-queue**, mixed across sources. |
 | Mon–Fri | Mods react ✅ to include a draft or ❌ to leave it out. To edit one, reply to it (see below). Post `more: <topic>` for 3 extra drafts. |
-| Friday, 10 AM | Every ✅ draft goes into one **AI News Roundup** post in the **#ai-news** forum. Drafts without a ✅ are closed. |
+| Friday, 10 AM | Every ✅ draft becomes its own post in the **#ai-news** forum, tagged with its topic and **Weekly Roundup**. Drafts without a ✅ are closed. |
 
 The bot checks the queue every 2 hours on weekdays, so a reply or request takes up to 2 hours to show up. The bot reacts ✏️ when it applies an edit and 👀 when it picks up a request.
 
@@ -39,7 +39,7 @@ The bot checks the queue every 2 hours on weekdays, so a reply or request takes 
    ```
    `gh secret set NEWS_DISCORD_TOKEN` asks you to paste the token, so it never ends up in your shell history. Until these are set, the workflow's runs are skipped instead of failing.
 
-**Run it now:** in the repo's **Actions** tab, open **ai-news** and click **Run workflow**. Leave `force` on `none` for a normal run, which does whatever today's schedule calls for. Pick `draft` to post this week's candidates now, or `roundup` to post the ✅ drafts to #ai-news now. Forcing a roundup closes every open draft, the same way Friday's does.
+**Run it now:** in the repo's **Actions** tab, open **ai-news** and click **Run workflow**. Leave `force` on `none` for a normal run, which does whatever today's schedule calls for. Pick `draft` to post this week's candidates now, or `roundup` to post the ✅ drafts to #ai-news now. Forcing `roundup` closes every open draft, the same way Friday's run does.
 
 **Local runs:** put the three values in `news-bot/.env`, then run `python news-bot/news.py`. Local runs post to the real channels, and they save state to your copy of `state.json`. The Actions runs then won't know what was already drafted.
 
@@ -52,4 +52,4 @@ These are all near the top of `news.py`:
 | `TAG_KEYWORDS` | Which forum tag each story gets. Tag names must match the #ai-news forum's tags exactly. |
 | `FEEDS` | Which RSS feeds the Monday drafts come from. |
 | `WEEKLY_CANDIDATES` | How many drafts Monday posts. |
-| `ROUNDUP_DAY`, `ROUNDUP_HOUR` | When the roundup goes out. |
+| `ROUNDUP_DAY`, `ROUNDUP_HOUR` | When approved stories post to #ai-news. |
